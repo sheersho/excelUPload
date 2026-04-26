@@ -3,7 +3,7 @@ FROM maven:3.9-eclipse-temurin-21-alpine AS builder
 WORKDIR /app
 COPY pom.xml .
 COPY src ./src
-RUN mvn clean package -DskipTests
+RUN mvn clean package -DskipTests -q && ls -la target/
 
 # Runtime: Java 21 minimal image
 FROM eclipse-temurin:21-jre-alpine
@@ -12,8 +12,8 @@ WORKDIR /app
 # Install curl for health checks
 RUN apk add --no-cache curl
 
-# Copy built jar from builder stage
-COPY --from=builder /app/target/excelUPload-1.0-SNAPSHOT.jar app.jar
+# Copy built jar from builder stage (match the actual artifact name from pom.xml)
+COPY --from=builder /app/target/excelUploaderAndInserter-1.0-SNAPSHOT.jar app.jar
 
 # Create directories for file uploads and data
 RUN mkdir -p /app/uploads /app/data
