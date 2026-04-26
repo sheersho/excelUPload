@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: excel-upload-api
+    runtime: docker
+    plan: free
+
+    # GitHub repository connection
+    repo: https://github.com/your-username/excelUPload
+    branch: main
+
+    # Build configuration
+    dockerfile: ./Dockerfile
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+
+    # Environment variables
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: PORT
+        value: "8080"
+      - key: JAVA_TOOL_OPTIONS
+        value: -Xmx512m -Xms256m
+      - key: TZ
+        value: UTC
+
+    # Health check
+    healthCheckPath: /api/records?limit=1
+
+  - type: pserv
+    name: excel-upload-db
+    runtime: postgresql
+    plan: free
+
+    # PostgreSQL version
+    ipAllowList: []
+
+    # Database settings
+    dbName: excel_upload
+    user: postgres
+    postgresMajorVersion: "15"
+
+envVarGroups:
+  - name: Database Connection
+    envVars:
+      - key: DATABASE_URL
+        fromService:
+          type: pserv
+          name: excel-upload-db
+          property: connectionString
+
