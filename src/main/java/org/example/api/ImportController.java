@@ -206,6 +206,9 @@ public class ImportController {
             log.info("Import request completed: source={}, filesProcessed={}, rowsRead={}, rowsInserted={}, rowsSkipped={}",
                     sourceLabel, result.filesProcessed(), result.rowsRead(), result.rowsInserted(), result.rowsSkipped());
             return ResponseEntity.ok(response);
+        } catch (OutOfMemoryError oom) {
+            log.error("Import request failed due to JVM heap exhaustion for source={}", sourceLabel, oom);
+            return badRequest("File is too large for current server memory. Increase JAVA_TOOL_OPTIONS (for example -Xmx1024m) or upload a smaller/split file.", "OutOfMemoryError");
         } catch (Exception ex) {
             log.error("Import request failed for source={}: {}", sourceLabel, ex.getMessage(), ex);
             return badRequest(ex.getMessage(), ex.getClass().getSimpleName());

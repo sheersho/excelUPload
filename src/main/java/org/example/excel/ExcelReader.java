@@ -11,8 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -26,8 +24,7 @@ public class ExcelReader {
     private final DataFormatter dataFormatter = new DataFormatter();
 
     public List<String> readHeaders(Path excelFile, String sheetName, int headerRowIndex) throws IOException {
-        try (InputStream in = Files.newInputStream(excelFile);
-             Workbook workbook = WorkbookFactory.create(in)) {
+        try (Workbook workbook = WorkbookFactory.create(excelFile.toFile(), null, true)) {
             Sheet sheet = resolveSheet(workbook, sheetName != null ? sheetName : "");
             Row headerRow = sheet.getRow(headerRowIndex);
             if (headerRow == null) {
@@ -45,8 +42,7 @@ public class ExcelReader {
     }
 
     public List<Map<String, String>> readRows(Path excelFile, AppConfig config) throws IOException {
-        try (InputStream in = Files.newInputStream(excelFile);
-             Workbook workbook = WorkbookFactory.create(in)) {
+        try (Workbook workbook = WorkbookFactory.create(excelFile.toFile(), null, true)) {
 
             Sheet sheet = resolveSheet(workbook, config.sheetName());
             Row headerRow = sheet.getRow(config.headerRowIndex());
