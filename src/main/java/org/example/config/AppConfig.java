@@ -4,6 +4,7 @@ import org.example.model.ColumnMapping;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -12,6 +13,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public record AppConfig(
         String dbUrl,
@@ -26,6 +29,8 @@ public record AppConfig(
         List<ColumnMapping> columnMappings,
         List<String> dedupeColumns
 ) {
+
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^}:]+)(?::([^}]*))?}");
 
     public static AppConfig load(Path externalConfigPath) throws IOException {
         Properties properties = new Properties();
@@ -59,6 +64,8 @@ public record AppConfig(
                 properties.putAll(overrides);
             }
         }
+
+        resolveEnvPlaceholders(properties);
 
         String dbUrl = required(properties, "db.url");
         String dbDriver = properties.getProperty("db.driver", "").trim();
@@ -109,46 +116,68 @@ public record AppConfig(
     private static String normalizePostgresUrl(String postgresUrl, Properties properties) {
         // Input: postgresql://username:password@host:port/database
         // Output: jdbc:postgresql://host:port/database
-        // Also extract username and password if not already set
-
         try {
-            // Remove protocol
-            String urlWithoutProtocol = postgresUrl.replace("postgresql://", "");
+            URI uri = URI.create(postgresUrl);
+            String host = uri.getHost();
+            if (host == null || host.isBlank()) {
+                throw new IllegalArgumentException("Host is missing");
+            }
 
-            String host = urlWithoutProtocol;
-            String username = "";
-            String password = "";
+            int port = uri.getPort() == -1 ? 5432 : uri.getPort();
+            String databasePath = (uri.getPath() == null || uri.getPath().isBlank()) ? "" : uri.getPath();
 
-            // Extract credentials if present (user:pass@host)
-            if (urlWithoutProtocol.contains("@")) {
-                String[] parts = urlWithoutProtocol.split("@", 2);
-                String credentials = parts[0];
-                host = parts[1];
+            String userInfo = uri.getUserInfo();
+            if (userInfo != null && !userInfo.isBlank()) {
+                String[] creds = userInfo.split(":", 2);
+                String username = creds.length > 0 ? creds[0] : "";
+                String password = creds.length > 1 ? creds[1] : "";
 
-                if (credentials.contains(":")) {
-                    String[] credParts = credentials.split(":", 2);
-                    username = credParts[0];
-                    password = credParts[1];
+                if (!username.isEmpty() && properties.getProperty("db.username", "").isEmpty()) {
+                    properties.setProperty("db.username", username);
+                }
+                if (!password.isEmpty() && properties.getProperty("db.password", "").isEmpty()) {
+                    properties.setProperty("db.password", password);
                 }
             }
 
-            // Set username/password if not already set
-            if (!username.isEmpty() && properties.getProperty("db.username", "").isEmpty()) {
-                properties.setProperty("db.username", username);
-            }
-            if (!password.isEmpty() && properties.getProperty("db.password", "").isEmpty()) {
-                properties.setProperty("db.password", password);
-            }
-
-            // Ensure port is included (default to 5432 if missing)
-            if (!host.contains(":")) {
-                host = host + ":5432";
-            }
-
-            return "jdbc:postgresql://" + host;
+            return "jdbc:postgresql://" + host + ":" + port + databasePath;
         } catch (Exception e) {
             throw new IllegalArgumentException("Invalid PostgreSQL URL format: " + postgresUrl, e);
         }
+    }
+
+    private static void resolveEnvPlaceholders(Properties properties) {
+        for (String key : properties.stringPropertyNames()) {
+            String rawValue = properties.getProperty(key);
+            if (rawValue == null || rawValue.isBlank()) {
+                continue;
+            }
+            properties.setProperty(key, resolveValue(rawValue));
+        }
+    }
+
+    private static String resolveValue(String rawValue) {
+        Matcher matcher = PLACEHOLDER_PATTERN.matcher(rawValue);
+        StringBuilder resolved = new StringBuilder();
+
+        while (matcher.find()) {
+            String envName = matcher.group(1);
+            String defaultValue = matcher.group(2);
+            String envValue = System.getenv(envName);
+
+            if (envValue == null || envValue.isEmpty()) {
+                if (defaultValue != null) {
+                    envValue = defaultValue;
+                } else {
+                    throw new IllegalArgumentException("Missing required environment variable: " + envName);
+                }
+            }
+
+            matcher.appendReplacement(resolved, Matcher.quoteReplacement(envValue));
+        }
+
+        matcher.appendTail(resolved);
+        return resolved.toString();
     }
 
     private static List<ColumnMapping> parseMappings(String rawMapping) {
