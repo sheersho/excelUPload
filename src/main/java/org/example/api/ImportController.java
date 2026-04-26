@@ -149,7 +149,7 @@ public class ImportController {
         return runImport(Path.of(path), path, configPath);
     }
 
-    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, params = "file")
+    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Map<String, Object>> importExcelFile(
             @RequestParam("file") MultipartFile file,
             @RequestParam(name = "configPath", required = false) String configPath) {
