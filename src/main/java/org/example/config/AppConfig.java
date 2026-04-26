@@ -132,10 +132,11 @@ public record AppConfig(
                 String username = creds.length > 0 ? creds[0] : "";
                 String password = creds.length > 1 ? creds[1] : "";
 
-                if (!username.isEmpty() && properties.getProperty("db.username", "").isEmpty()) {
+                // DATABASE_URL is the source of truth in Render; override local defaults like user 'sa'.
+                if (!username.isEmpty()) {
                     properties.setProperty("db.username", username);
                 }
-                if (!password.isEmpty() && properties.getProperty("db.password", "").isEmpty()) {
+                if (!password.isEmpty()) {
                     properties.setProperty("db.password", password);
                 }
             }
