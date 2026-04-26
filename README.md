@@ -72,25 +72,43 @@ java -cp "target\excelUPload-1.0-SNAPSHOT.jar" org.example.ExcelToSqlApplication
 
 #### API Endpoints
 
-**POST** `/api/import/`
+**POST** `/api/import`
 
-Import Excel files from a folder or single file.
+Import data using either:
 
-**Parameter:**
-- `path` (required): Full path to Excel file or folder
+1. `path` query parameter (server-side file/folder path)
+2. `file` multipart upload (Postman/curl upload from user machine)
+
+**Path-based parameters:**
+- `path` (required): Full path to Excel file or folder on the machine where API is running
 - `configPath` (optional): Full path to custom config file
 
-**Curl Example (Frontend):**
+**Path-based curl example:**
 
 ```bash
-curl -X POST "http://localhost:8080/api/import?path=C:\\Users\\YV738GP\\IdeaProjects\\excelUPload\\excelFiles"
+curl -X POST "http://localhost:8080/api/import?path=C:/Users/YV738GP/IdeaProjects/excelUPload/excelFiles"
 ```
 
-Or with jq for pretty output:
+**Upload-based parameter:**
+- `file` (required): `.xlsx` or `.xls` file in multipart form-data
+- `configPath` (optional): Full path to custom config file
+
+**Upload-based curl example (Windows PowerShell):**
 
 ```bash
-curl -X POST "http://localhost:8080/api/import?path=C:\\Users\\YV738GP\\IdeaProjects\\excelUPload\\excelFiles" | jq
+curl.exe -X POST "https://excelupload.onrender.com/api/import" -F "file=@C:/Users/YV738GP/IdeaProjects/excelUPload/excelFiles/Book1.xlsx"
 ```
+
+**Upload-based curl example (Linux/macOS):**
+
+```bash
+curl -X POST "https://excelupload.onrender.com/api/import" -F "file=@/absolute/path/to/Book1.xlsx"
+```
+
+**Postman setup:**
+- Method: `POST`
+- URL: `https://excelupload.onrender.com/api/import`
+- Body -> `form-data` -> key `file` (type `File`) -> select Excel file
 
 **Response (JSON):**
 

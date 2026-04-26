@@ -6,14 +6,20 @@ import org.example.config.AppConfig;
 import org.example.excel.ExcelReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -136,17 +142,54 @@ public class ImportController {
         }
     }
 
-    @PostMapping("/import")
+    @PostMapping(value = "/import", params = "path")
     public ResponseEntity<Map<String, Object>> importExcel(
             @RequestParam("path") String path,
             @RequestParam(name = "configPath", required = false) String configPath) {
+        return runImport(Path.of(path), path, configPath);
+    }
 
+    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, params = "file")
+    public ResponseEntity<Map<String, Object>> importExcelFile(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(name = "configPath", required = false) String configPath) {
+        if (file.isEmpty()) {
+            return badRequest("Uploaded file is empty.", "IllegalArgumentException");
+        }
+
+        String originalName = file.getOriginalFilename() == null ? "uploaded.xlsx" : file.getOriginalFilename();
+        if (!isExcelFile(originalName)) {
+            return badRequest("Only .xlsx or .xls files are supported.", "IllegalArgumentException");
+        }
+
+        String extension = originalName.toLowerCase().endsWith(".xls") ? ".xls" : ".xlsx";
+        Path tempFile = null;
         try {
-            log.info("Import request received: path={}, configPath={}", path, configPath);
-            Path inputPath = Path.of(path);
+            tempFile = Files.createTempFile("excel-upload-", extension);
+            try (InputStream input = file.getInputStream()) {
+                Files.copy(input, tempFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+            log.info("Import request received via upload: originalFile={}, tempFile={}, configPath={}",
+                    originalName, tempFile, configPath);
+            return runImport(tempFile, originalName, configPath);
+        } catch (Exception ex) {
+            log.error("Upload import failed for file={}: {}", originalName, ex.getMessage(), ex);
+            return badRequest(ex.getMessage(), ex.getClass().getSimpleName());
+        } finally {
+            if (tempFile != null) {
+                try {
+                    Files.deleteIfExists(tempFile);
+                } catch (IOException cleanupEx) {
+                    log.warn("Could not delete temp upload file={}: {}", tempFile, cleanupEx.getMessage());
+                }
+            }
+        }
+    }
+
+    private ResponseEntity<Map<String, Object>> runImport(Path inputPath, String sourceLabel, String configPath) {
+        try {
             Path config = configPath != null ? Path.of(configPath) : null;
             AppConfig appConfig = AppConfig.load(config);
-
             ImportResult result = excelToSqlService.importPath(inputPath, appConfig);
 
             Map<String, Object> response = new HashMap<>();
@@ -160,17 +203,25 @@ public class ImportController {
                     result.filesProcessed(), result.rowsRead(), result.rowsInserted(), result.rowsSkipped()
             ));
 
-            log.info("Import request completed: path={}, filesProcessed={}, rowsRead={}, rowsInserted={}, rowsSkipped={}",
-                    path, result.filesProcessed(), result.rowsRead(), result.rowsInserted(), result.rowsSkipped());
+            log.info("Import request completed: source={}, filesProcessed={}, rowsRead={}, rowsInserted={}, rowsSkipped={}",
+                    sourceLabel, result.filesProcessed(), result.rowsRead(), result.rowsInserted(), result.rowsSkipped());
             return ResponseEntity.ok(response);
-
         } catch (Exception ex) {
-            log.error("Import request failed for path={}: {}", path, ex.getMessage(), ex);
-            Map<String, Object> error = new HashMap<>();
-            error.put("success", false);
-            error.put("error", ex.getMessage());
-            error.put("type", ex.getClass().getSimpleName());
-            return ResponseEntity.badRequest().body(error);
+            log.error("Import request failed for source={}: {}", sourceLabel, ex.getMessage(), ex);
+            return badRequest(ex.getMessage(), ex.getClass().getSimpleName());
         }
+    }
+
+    private boolean isExcelFile(String fileName) {
+        String lower = fileName.toLowerCase();
+        return lower.endsWith(".xlsx") || lower.endsWith(".xls");
+    }
+
+    private ResponseEntity<Map<String, Object>> badRequest(String message, String type) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("success", false);
+        error.put("error", message);
+        error.put("type", type);
+        return ResponseEntity.badRequest().body(error);
     }
 }
