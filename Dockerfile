@@ -26,5 +26,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/api/records?limit=1 || exit 1
 
 # Run Spring Boot application (explicit main class to override CLI Main.java)
-ENTRYPOINT ["java", "-cp", "app.jar", "org.example.ExcelToSqlApplication"]
+# -Xmx400m: safe limit for Render free tier (512MB total RAM)
+ENTRYPOINT ["java", "-Xmx400m", "-Xms128m", "-cp", "app.jar", "org.example.ExcelToSqlApplication"]
 
