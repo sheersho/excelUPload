@@ -18,6 +18,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -41,9 +42,10 @@ public class ImportController {
     @GetMapping("/records")
     public ResponseEntity<Map<String, Object>> getRecords(
             @RequestParam(name = "limit", required = false, defaultValue = "100") int limit) {
+        AppConfig config = null;
         try {
             log.info("Records requested: limit={}", limit);
-            AppConfig config = AppConfig.load(null);
+            config = AppConfig.load(null);
             Class.forName(config.dbDriver());
             try (Connection conn = DriverManager.getConnection(config.dbUrl(), config.dbUser(), config.dbPassword());
                  Statement stmt = conn.createStatement()) {
@@ -74,6 +76,24 @@ public class ImportController {
                 log.info("Records response ready: table={}, totalRows={}, returnedRows={}", config.tableName(), totalCount, rows.size());
                 return ResponseEntity.ok(response);
             }
+        } catch (SQLException sqlEx) {
+            if (isMissingTableError(sqlEx)) {
+                String tableName = config.tableName();
+                log.info("Records requested before table exists: table={}", tableName);
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", true);
+                response.put("table", tableName);
+                response.put("totalRows", 0);
+                response.put("returnedRows", 0);
+                response.put("records", List.of());
+                response.put("message", "Table '" + tableName + "' does not exist yet. Import data first.");
+                return ResponseEntity.ok(response);
+            }
+            log.error("Records request failed: {}", sqlEx.getMessage(), sqlEx);
+            Map<String, Object> error = new HashMap<>();
+            error.put("success", false);
+            error.put("error", sqlEx.getMessage());
+            return ResponseEntity.badRequest().body(error);
         } catch (Exception ex) {
             log.error("Records request failed: {}", ex.getMessage(), ex);
             Map<String, Object> error = new HashMap<>();
@@ -81,6 +101,16 @@ public class ImportController {
             error.put("error", ex.getMessage());
             return ResponseEntity.badRequest().body(error);
         }
+    }
+
+    private boolean isMissingTableError(SQLException ex) {
+        String sqlState = ex.getSQLState();
+        String message = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase();
+        return "42P01".equals(sqlState)
+                || "42S02".equals(sqlState)
+                || message.contains("does not exist")
+                || message.contains("not found")
+                || message.contains("relation");
     }
 
 
