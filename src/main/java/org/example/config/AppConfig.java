@@ -30,6 +30,7 @@ public record AppConfig(
     public static AppConfig load(Path externalConfigPath) throws IOException {
         Properties properties = new Properties();
 
+        // Load default application.properties
         try (InputStream in = AppConfig.class.getClassLoader().getResourceAsStream("application.properties")) {
             if (in == null) {
                 throw new IllegalStateException("Default application.properties not found in resources.");
@@ -37,6 +38,20 @@ public record AppConfig(
             properties.load(in);
         }
 
+        // Load profile-specific properties (e.g., application-prod.properties)
+        String activeProfile = System.getenv("SPRING_PROFILES_ACTIVE");
+        if (activeProfile != null && !activeProfile.trim().isEmpty()) {
+            String profileFile = "application-" + activeProfile.trim() + ".properties";
+            try (InputStream in = AppConfig.class.getClassLoader().getResourceAsStream(profileFile)) {
+                if (in != null) {
+                    Properties profileProperties = new Properties();
+                    profileProperties.load(in);
+                    properties.putAll(profileProperties);
+                }
+            }
+        }
+
+        // Load external config file if provided (highest priority)
         if (externalConfigPath != null) {
             try (InputStream in = Files.newInputStream(externalConfigPath)) {
                 Properties overrides = new Properties();
@@ -46,9 +61,20 @@ public record AppConfig(
         }
 
         String dbUrl = required(properties, "db.url");
+        String dbDriver = properties.getProperty("db.driver", "").trim();
+
+        // Handle PostgreSQL URLs from Render (format: postgresql://user:pass@host/db)
+        // Convert to proper JDBC format: jdbc:postgresql://host:5432/db
+        if (dbUrl.startsWith("postgresql://")) {
+            dbUrl = normalizePostgresUrl(dbUrl, properties);
+            if (dbDriver.isEmpty()) {
+                dbDriver = "org.postgresql.Driver";
+            }
+        }
+
+        // Read username/password after URL normalization (which may have extracted them)
         String dbUser = properties.getProperty("db.username", "");
         String dbPassword = properties.getProperty("db.password", "");
-        String dbDriver = properties.getProperty("db.driver", "").trim();
         String tableName = required(properties, "db.table");
         String sheetName = properties.getProperty("excel.sheetName", "").trim();
         int headerRowIndex = Integer.parseInt(properties.getProperty("excel.headerRowIndex", "0"));
@@ -78,6 +104,51 @@ public record AppConfig(
             throw new IllegalArgumentException("Missing required property: " + key);
         }
         return value.trim();
+    }
+
+    private static String normalizePostgresUrl(String postgresUrl, Properties properties) {
+        // Input: postgresql://username:password@host:port/database
+        // Output: jdbc:postgresql://host:port/database
+        // Also extract username and password if not already set
+
+        try {
+            // Remove protocol
+            String urlWithoutProtocol = postgresUrl.replace("postgresql://", "");
+
+            String host = urlWithoutProtocol;
+            String username = "";
+            String password = "";
+
+            // Extract credentials if present (user:pass@host)
+            if (urlWithoutProtocol.contains("@")) {
+                String[] parts = urlWithoutProtocol.split("@", 2);
+                String credentials = parts[0];
+                host = parts[1];
+
+                if (credentials.contains(":")) {
+                    String[] credParts = credentials.split(":", 2);
+                    username = credParts[0];
+                    password = credParts[1];
+                }
+            }
+
+            // Set username/password if not already set
+            if (!username.isEmpty() && properties.getProperty("db.username", "").isEmpty()) {
+                properties.setProperty("db.username", username);
+            }
+            if (!password.isEmpty() && properties.getProperty("db.password", "").isEmpty()) {
+                properties.setProperty("db.password", password);
+            }
+
+            // Ensure port is included (default to 5432 if missing)
+            if (!host.contains(":")) {
+                host = host + ":5432";
+            }
+
+            return "jdbc:postgresql://" + host;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid PostgreSQL URL format: " + postgresUrl, e);
+        }
     }
 
     private static List<ColumnMapping> parseMappings(String rawMapping) {
